@@ -1,0 +1,5 @@
+{
+  "name": "Gemini Deep Search",
+  "description": "A high-performance AI search engine powered by Gemini 2.5 Flash with Google Search Grounding, featuring deep research capabilities and source citations.",
+  "requestFramePermissions": []
+}
