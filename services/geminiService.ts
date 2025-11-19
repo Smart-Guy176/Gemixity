@@ -1,48 +1,97 @@
-import { GoogleGenAI, Tool, Type } from "@google/genai";
-import { Source } from '../types';
+import { GoogleGenAI, Tool } from "@google/genai";
+import { Source, SearchResult } from '../types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-export const searchWithGemini = async (query: string): Promise<{ text: string; sources: Source[]; relatedQuestions: string[] }> => {
+export const searchWithGemini = async (
+  query: string, 
+  isDeepResearch: boolean = false,
+  isSearchOnly: boolean = false
+): Promise<{ text: string; sources: Source[]; relatedQuestions: string[]; searchResults: SearchResult[] }> => {
   try {
-    // Define the search tool
     const tools: Tool[] = [{ googleSearch: {} }];
+    
+    // Config based on mode
+    let thinkingBudget = isDeepResearch ? 16384 : 1024;
+    if (isSearchOnly) thinkingBudget = 0; // Search only doesn't need deep thinking, just retrieval
+
+    let systemInstruction = "";
+
+    if (isSearchOnly) {
+      systemInstruction = `You are a search engine result aggregator. 
+      1. Perform a google search for the user's query.
+      2. Return a JSON array of the top 6-8 search results.
+      3. For each result, strictly use this format: {"title": "Page Title", "url": "Page URL", "snippet": "Brief summary of the page content"}.
+      4. Do NOT output any conversational text, introductions, or markdown code blocks. ONLY output the raw JSON array.`;
+    } else {
+      systemInstruction = isDeepResearch 
+        ? `You are an expert Deep Research Analyst. 
+           1. Your goal is to provide an exhaustive, highly detailed, and academic-grade answer based on Google Search results.
+           2. Verify facts across multiple search results. 
+           3. Structure your answer with an Executive Summary followed by detailed sections.
+           4. You MUST cite your sources inline using [Source Title](URL) format or [1], [2] style.
+           5. Suggest 3 complex follow-up questions in a JSON block at the end.`
+        : `You are a helpful search assistant. Provide a concise and accurate answer based on Google Search results. Suggest 3 follow-up questions in a JSON block at the end.`;
+    }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash', // 2.5 Flash is optimized for speed + reasoning
+      model: 'gemini-2.5-flash',
       contents: query,
       config: {
         tools: tools,
-        // Enable "Thinking" (Test Time Compute) to allow the model to reason before answering
-        thinkingConfig: { thinkingBudget: 2048 }, 
-        systemInstruction: `You are an advanced Deep Research AI. 
-        1. Your goal is to provide a comprehensive, accurate, and well-structured answer based on Google Search results. 
-        2. Structure your answer with clear headings (##) and bullet points.
-        3. Be objective and exhaustive. 
-        4. Suggest 3 follow-up questions at the very end of your response in a JSON block formatted like this:
+        thinkingConfig: { thinkingBudget }, 
+        systemInstruction: `${systemInstruction}
+        
+        ${!isSearchOnly ? `Format the related questions exactly like this:
         \`\`\`json
         ["Question 1", "Question 2", "Question 3"]
-        \`\`\`
+        \`\`\`` : ''}
         `,
       },
     });
 
     let text = response.text || "No result generated.";
-    
-    // Extract Related Questions from the JSON block if present
     let relatedQuestions: string[] = [];
-    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-    if (jsonMatch) {
+    let searchResults: SearchResult[] = [];
+
+    // Parse JSON for Search Only mode
+    if (isSearchOnly) {
       try {
-        relatedQuestions = JSON.parse(jsonMatch[1]);
-        // Remove the JSON block from the display text
-        text = text.replace(jsonMatch[0], '').trim();
+        // Use regex to extract the outermost JSON array, ignoring surrounding text
+        const jsonMatch = text.match(/\[[\s\S]*\]/);
+        
+        if (jsonMatch) {
+          searchResults = JSON.parse(jsonMatch[0]);
+          text = ""; // Clear text as we successfully parsed structured data
+        } else {
+          // Fallback: try to clean code blocks manually if regex failed
+          const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+          if (cleanText.startsWith('[')) {
+             searchResults = JSON.parse(cleanText);
+             text = "";
+          } else {
+             throw new Error("No JSON array found in response");
+          }
+        }
       } catch (e) {
-        console.error("Failed to parse related questions", e);
+        console.error("Failed to parse search results JSON", e);
+        // Keep text populated so the UI can show the raw output/error
+        text = "System Warning: Could not parse structured search results. \n\nRaw Response:\n" + text;
+      }
+    } else {
+      // Parse Related Questions for Answer mode
+      const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        try {
+          relatedQuestions = JSON.parse(jsonMatch[1]);
+          text = text.replace(jsonMatch[0], '').trim();
+        } catch (e) {
+          console.error("Failed to parse related questions", e);
+        }
       }
     }
 
-    // Extract sources from grounding metadata
+    // Extract Grounding Sources (Standard for Answer mode)
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources: Source[] = chunks
       .map((chunk: any) => {
@@ -56,13 +105,13 @@ export const searchWithGemini = async (query: string): Promise<{ text: string; s
       })
       .filter((source: Source | null): source is Source => source !== null);
       
-    // Deduplicate sources
     const uniqueSources = Array.from(new Map(sources.map(item => [item.uri, item])).values());
 
     return {
       text,
       sources: uniqueSources,
-      relatedQuestions
+      relatedQuestions,
+      searchResults
     };
 
   } catch (error) {
