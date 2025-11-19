@@ -1,5 +1,4 @@
 import React from 'react';
-import { Globe } from 'lucide-react';
 import { Source } from '../types';
 
 interface SourceCardProps {
@@ -17,28 +16,31 @@ export const SourceCard: React.FC<SourceCardProps> = ({ source, index }) => {
     }
   };
 
+  const hostname = tryGetHostname(source.uri);
+
   return (
     <a
       href={source.uri}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex-shrink-0 w-40 md:w-48 bg-[#1e293b] hover:bg-[#2d3b52] transition-colors rounded-lg p-3 flex flex-col gap-2 border border-gray-700/50 group no-underline"
+      className="flex flex-col justify-between bg-[#1e293b]/40 hover:bg-[#1e293b] border border-gray-800 hover:border-gray-600 p-3 rounded-lg transition-all duration-200 h-24 group no-underline"
     >
-      <div className="flex items-center justify-between">
-        <div className="text-xs text-gray-400 truncate w-full pr-2">Source {index + 1}</div>
-      </div>
-      <h3 className="text-sm font-medium text-gray-200 leading-tight line-clamp-2 group-hover:text-blue-400 transition-colors">
+      <div className="text-xs text-gray-300 line-clamp-2 font-medium group-hover:text-teal-300 transition-colors">
         {source.title}
-      </h3>
-      <div className="mt-auto pt-2 flex items-center gap-2">
+      </div>
+      
+      <div className="flex items-center gap-2 mt-2">
         <img 
           src={getFavicon(source.uri)} 
           alt="" 
           className="w-4 h-4 rounded-full bg-white/10"
-          onError={(e) => { (e.target as HTMLImageElement).src = 'about:blank'; (e.target as HTMLImageElement).style.display='none'; }} 
+          onError={(e) => { (e.target as HTMLImageElement).style.display='none'; }} 
         />
-        <div className="text-xs text-gray-500 truncate font-mono">
-          {tryGetHostname(source.uri)}
+        <div className="text-[10px] text-gray-500 truncate font-mono max-w-full">
+          {hostname}
+        </div>
+        <div className="ml-auto text-[10px] text-gray-600 font-bold bg-gray-800/50 px-1.5 rounded">
+          {index + 1}
         </div>
       </div>
     </a>
